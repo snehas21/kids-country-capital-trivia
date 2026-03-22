@@ -429,6 +429,13 @@
   </style>
 </head>
 <body>
+<!-- fixed mute button – always visible -->
+<button class="mute-btn" onclick="toggleMute()" title="Toggle sound"
+  style="position:fixed;top:16px;right:16px;z-index:999;background:rgba(255,255,255,0.1);
+         border:1px solid rgba(255,255,255,0.2);border-radius:50%;width:42px;height:42px;
+         font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;
+         backdrop-filter:blur(8px);transition:background 0.2s;">🔊</button>
+
 <div class="container">
 
   <!-- ══ WELCOME SCREEN ══ -->
@@ -469,10 +476,7 @@
   <div id="screen-quiz" class="screen">
     <div class="quiz-header">
       <span class="progress-info" id="progress-info">Question 1 of 15</span>
-      <div style="display:flex;align-items:center;gap:10px;">
-        <button id="mute-btn" onclick="toggleMute()" title="Toggle sound" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:50%;width:34px;height:34px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">🔊</button>
-        <span class="score-badge" id="score-display">Score: 0</span>
-      </div>
+      <span class="score-badge" id="score-display">Score: 0</span>
     </div>
     <div class="progress-bar-wrap">
       <div class="progress-bar" id="progress-bar" style="width:0%"></div>
@@ -871,29 +875,33 @@ function soundVictory(ctx) {
   );
 }
 
-function playCorrect() {
+async function playCorrect() {
   if (muted) return;
   const ctx = getCtx();
-  const fn  = correctSounds[Math.floor(Math.random() * correctSounds.length)];
+  if (ctx.state === 'suspended') await ctx.resume();
+  const fn = correctSounds[Math.floor(Math.random() * correctSounds.length)];
   fn(ctx);
 }
 
-function playWrong() {
+async function playWrong() {
   if (muted) return;
   const ctx = getCtx();
-  const fn  = wrongSounds[Math.floor(Math.random() * wrongSounds.length)];
+  if (ctx.state === 'suspended') await ctx.resume();
+  const fn = wrongSounds[Math.floor(Math.random() * wrongSounds.length)];
   fn(ctx);
 }
 
-function playVictory() {
+async function playVictory() {
   if (muted) return;
-  soundVictory(getCtx());
+  const ctx = getCtx();
+  if (ctx.state === 'suspended') await ctx.resume();
+  soundVictory(ctx);
 }
 
 /* ── mute button ── */
 function toggleMute() {
   muted = !muted;
-  document.getElementById('mute-btn').textContent = muted ? '🔇' : '🔊';
+  document.querySelectorAll('.mute-btn').forEach(b => b.textContent = muted ? '🔇' : '🔊');
 }
 
 // ══════════════════════════════════════════════
