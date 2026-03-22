@@ -469,7 +469,10 @@
   <div id="screen-quiz" class="screen">
     <div class="quiz-header">
       <span class="progress-info" id="progress-info">Question 1 of 15</span>
-      <span class="score-badge" id="score-display">Score: 0</span>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <button id="mute-btn" onclick="toggleMute()" title="Toggle sound" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:50%;width:34px;height:34px;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;">🔊</button>
+        <span class="score-badge" id="score-display">Score: 0</span>
+      </div>
     </div>
     <div class="progress-bar-wrap">
       <div class="progress-bar" id="progress-bar" style="width:0%"></div>
@@ -689,12 +692,14 @@ function handleAnswer(btn, chosen, correct) {
     btn.classList.add('correct');
     fb.className   = 'feedback-bar correct-fb show';
     fb.textContent = '✅ Correct! Well done!';
+    playCorrect();
   } else {
     btn.classList.add('wrong');
     // highlight correct answer
     allBtns.forEach(b => { if (b.textContent === correct) b.classList.add('correct'); });
     fb.className   = 'feedback-bar wrong-fb show';
     fb.textContent = `❌ Not quite! The answer is ${correct}.`;
+    playWrong();
   }
 
   document.getElementById('score-display').textContent = `Score: ${score}`;
@@ -748,6 +753,147 @@ function showResults() {
   document.getElementById('progress-bar').style.width = '100%';
 
   showScreen('screen-results');
+  playVictory();
+}
+
+// ══════════════════════════════════════════════
+//  SOUND ENGINE  (Web Audio API – no external files)
+// ══════════════════════════════════════════════
+let audioCtx = null;
+let muted    = false;
+
+function getCtx() {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  return audioCtx;
+}
+
+/* --- low-level helpers --- */
+function playTone(freq, startTime, dur, type = 'sine', gainVal = 0.4, ctx) {
+  const osc  = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.type      = type;
+  osc.frequency.setValueAtTime(freq, startTime);
+  gain.gain.setValueAtTime(gainVal, startTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, startTime + dur);
+  osc.start(startTime);
+  osc.stop(startTime + dur + 0.01);
+}
+
+function playFreqSweep(startFreq, endFreq, startTime, dur, type = 'sine', gainVal = 0.35, ctx) {
+  const osc  = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.type = type;
+  osc.frequency.setValueAtTime(startFreq, startTime);
+  osc.frequency.exponentialRampToValueAtTime(endFreq, startTime + dur);
+  gain.gain.setValueAtTime(gainVal, startTime);
+  gain.gain.exponentialRampToValueAtTime(0.001, startTime + dur);
+  osc.start(startTime);
+  osc.stop(startTime + dur + 0.01);
+}
+
+/* --- correct sound variants --- */
+function soundCorrect1(ctx) { // ascending chime  C5→E5→G5
+  const t = ctx.currentTime;
+  [[523,0],[659,0.12],[784,0.24]].forEach(([f,d]) => playTone(f, t+d, 0.22, 'sine', 0.38, ctx));
+}
+
+function soundCorrect2(ctx) { // sparkle sweep + ping
+  const t = ctx.currentTime;
+  playFreqSweep(400, 1200, t, 0.18, 'sine', 0.3, ctx);
+  playTone(1047, t+0.2, 0.25, 'sine', 0.4, ctx);
+}
+
+function soundCorrect3(ctx) { // happy 4-note fanfare  C5→E5→G5→C6
+  const t = ctx.currentTime;
+  [[523,0],[659,0.1],[784,0.2],[1047,0.32]].forEach(([f,d]) => playTone(f, t+d, 0.18, 'triangle', 0.4, ctx));
+}
+
+function soundCorrect4(ctx) { // bouncy pop  (two quick sine bursts)
+  const t = ctx.currentTime;
+  playFreqSweep(600, 900, t, 0.08, 'sine', 0.35, ctx);
+  playFreqSweep(700, 1100, t+0.12, 0.1, 'sine', 0.35, ctx);
+  playTone(880, t+0.25, 0.2, 'sine', 0.35, ctx);
+}
+
+const correctSounds = [soundCorrect1, soundCorrect2, soundCorrect3, soundCorrect4];
+
+/* --- wrong sound variants --- */
+function soundWrong1(ctx) { // classic buzzer
+  const t = ctx.currentTime;
+  playTone(180, t, 0.4, 'sawtooth', 0.25, ctx);
+  playTone(140, t+0.1, 0.35, 'sawtooth', 0.2, ctx);
+}
+
+function soundWrong2(ctx) { // womp-womp descending trombone
+  const t = ctx.currentTime;
+  playFreqSweep(440, 300, t,      0.22, 'sawtooth', 0.22, ctx);
+  playFreqSweep(300, 180, t+0.22, 0.25, 'sawtooth', 0.22, ctx);
+}
+
+function soundWrong3(ctx) { // quick descending blip
+  const t = ctx.currentTime;
+  playFreqSweep(600, 200, t, 0.3, 'square', 0.18, ctx);
+}
+
+function soundWrong4(ctx) { // cartoon boing (sine warble)
+  const t = ctx.currentTime;
+  const osc  = ctx.createOscillator();
+  const lfo  = ctx.createOscillator();
+  const lfoG = ctx.createGain();
+  const gain = ctx.createGain();
+  lfo.connect(lfoG);
+  lfoG.connect(osc.frequency);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.type      = 'sine';
+  osc.frequency.setValueAtTime(350, t);
+  osc.frequency.exponentialRampToValueAtTime(150, t + 0.5);
+  lfo.frequency.setValueAtTime(12, t);
+  lfoG.gain.setValueAtTime(60, t);
+  gain.gain.setValueAtTime(0.3, t);
+  gain.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+  lfo.start(t); lfo.stop(t + 0.55);
+  osc.start(t); osc.stop(t + 0.55);
+}
+
+const wrongSounds = [soundWrong1, soundWrong2, soundWrong3, soundWrong4];
+
+/* --- quiz complete fanfare --- */
+function soundVictory(ctx) {
+  const t = ctx.currentTime;
+  // melody: C5 E5 G5 E5 G5 C6
+  [[523,0],[659,0.12],[784,0.24],[659,0.36],[784,0.48],[1047,0.62]].forEach(([f,d]) =>
+    playTone(f, t+d, 0.2, 'triangle', 0.38, ctx)
+  );
+}
+
+function playCorrect() {
+  if (muted) return;
+  const ctx = getCtx();
+  const fn  = correctSounds[Math.floor(Math.random() * correctSounds.length)];
+  fn(ctx);
+}
+
+function playWrong() {
+  if (muted) return;
+  const ctx = getCtx();
+  const fn  = wrongSounds[Math.floor(Math.random() * wrongSounds.length)];
+  fn(ctx);
+}
+
+function playVictory() {
+  if (muted) return;
+  soundVictory(getCtx());
+}
+
+/* ── mute button ── */
+function toggleMute() {
+  muted = !muted;
+  document.getElementById('mute-btn').textContent = muted ? '🔇' : '🔊';
 }
 
 // ══════════════════════════════════════════════
@@ -761,7 +907,8 @@ document.querySelectorAll('.diff-btn').forEach(btn => {
   });
 });
 
-document.getElementById('btn-start').addEventListener('click', startQuiz);
+document.getElementById('btn-start').addEventListener('click', () => { getCtx(); startQuiz(); });
+
 
 document.getElementById('btn-same-diff').addEventListener('click', () => {
   startQuiz(); // same difficulty
